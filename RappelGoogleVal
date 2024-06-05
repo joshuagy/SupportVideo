@@ -1,0 +1,85 @@
+function createFollowUpEvent() {
+  // Récupère les événements de Google Agenda
+  var calendar = CalendarApp.getCalendarById('guyot.joshua@gmail.com'); // Remplacez par l'ID de votre calendrier
+  var events = calendar.getEvents(new Date(), new Date(Date.now() + 24 * 60 * 60 * 1000)); // Événements du jour
+
+  events.forEach(function(event) {
+    // Vérifie si l'événement doit avoir un rappel (par exemple, contient le mot-clé "[suivi]")
+    var description = event.getDescription() || "";
+    var title = event.getTitle() || "";
+    
+    Logger.log('Description: ' + description);
+    Logger.log('Title: ' + title);
+    
+    if (description.includes("[suivi]") || title.includes("[suivi]")) {
+      Logger.log('Event with follow-up detected: ' + event.getTitle());
+      
+      // Vérifie si un événement de suivi a déjà été créé
+      if (event.getTag('followUpCreated') !== 'true') {
+        Logger.log('Creating follow-up for event: ' + event.getTitle());
+        
+        // Initialisation du délai par défaut
+        var delayHours = 24; // Défaut à 24 heures si non spécifié
+
+        // Fonction pour extraire le délai personnalisé
+        function extractDelay(str) {
+          var delayKeyword = "[delai:";
+          var startIndex = str.indexOf(delayKeyword);
+          
+          if (startIndex !== -1) {
+            startIndex += delayKeyword.length;
+            var endIndex = str.indexOf("h]", startIndex);
+            if (endIndex !== -1) {
+              var delayStr = str.substring(startIndex, endIndex);
+              Logger.log('Delay string: ' + delayStr);
+              var delay = parseInt(delayStr);
+              if (!isNaN(delay)) {
+                return delay;
+              } else {
+                Logger.log('Failed to parse delay, defaulting to 24 hours');
+              }
+            } else {
+              Logger.log('End index for delay not found');
+            }
+          } else {
+            Logger.log('No delay keyword found in string');
+          }
+          return 24;
+        }
+
+        // Extraire le délai de la description et du titre
+        delayHours = extractDelay(description);
+        if (delayHours === 24) {
+          delayHours = extractDelay(title);
+        }
+
+        Logger.log('Final delay: ' + delayHours + ' hours');
+
+        // Nettoyer le titre en supprimant les tags "[suivi]" et "[delai:Xh]"
+        var cleanTitle = title.replace(/\[suivi\]/gi, '').replace(/\[delai:\d+h\]/gi, '').trim();
+        Logger.log('Clean title: ' + cleanTitle);
+
+        // Crée un événement de suivi après le délai spécifié
+        var followUpDate = new Date(event.getEndTime().getTime() + delayHours * 60 * 60 * 1000);
+        var followUpEvent = calendar.createEvent(
+          'Suivi : ' + cleanTitle,
+          followUpDate,
+          new Date(followUpDate.getTime() + 30 * 60 * 1000),
+          {description: 'Rappel de suivi pour l\'événement : ' + event.getTitle()}
+        );
+
+        // Ajoute un tag à l'événement principal pour éviter les doublons
+        event.setTag('followUpCreated', 'true');
+      }
+    }
+  });
+}
+
+function createDailyTrigger() {
+  // Crée un trigger quotidien pour exécuter la fonction de création de rappel
+  ScriptApp.newTrigger('createFollowUpEvent')
+    .timeBased()
+    .everyDays(1)
+    .atHour(0)
+    .create();
+}
